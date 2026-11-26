@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>LLC JV Master v1.0</title>
+    <title>Legacy Line Charts JV v1.1</title>
     <script crossorigin src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
     <script crossorigin src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
     <script src="https://unpkg.com/@babel/standalone@7.23.10/babel.min.js"></script>
@@ -175,9 +175,19 @@
         // Set SUBSCRIBER_MODE = true when building subscriber sites
         // Then populate EMBEDDED_CONFIG with their exported data
         // ============================================================
-        const SUBSCRIBER_MODE = false;  // Master site = false, Subscriber sites = true
+        const SUBSCRIBER_MODE = true;   // Master site = false, Subscriber sites = true
         
-        const EMBEDDED_CONFIG = null;   // null for master site, or paste exported config for subscribers
+        const EMBEDDED_CONFIG = {
+          siteId: 'delano-jv',
+          teamSetup: {
+            teamName: 'Delano Tigers JV',
+            logo: 'https://cdn3.sportngin.com/attachments/team/5112-152073362/1delano-tigers-hockey_large_square_large_square.png',
+            colors: { primary: '#000000', secondary: '#FC6418' },
+            arena: '',
+            pronunciations: {},
+            careerStats: {}
+          }
+        };
         /* Example for subscriber site:
         const EMBEDDED_CONFIG = {
           siteId: 'east-grand-forks',
@@ -3878,7 +3888,9 @@
                     {player.name}
                   </div>
                   
-                  <div style={{ marginTop: 'auto', width: '100%' }}>
+                  {/* JV v1.1: with no career rows, spread the info line and the two season rows
+                      evenly over the space under the name. Card size and font sizes unchanged. */}
+                  <div style={{ flex: 1, minHeight: 0, width: '100%', display: 'flex', flexDirection: 'column', justifyContent: 'space-evenly' }}>
                   <div style={{ 
                     display: 'flex',
                     justifyContent: 'space-between',
