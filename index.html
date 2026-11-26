@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Legacy Line Charts JV v1.1</title>
+    <title>LLC JV Master v63.4</title>
     <script crossorigin src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
     <script crossorigin src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
     <script src="https://unpkg.com/@babel/standalone@7.23.10/babel.min.js"></script>
@@ -175,19 +175,9 @@
         // Set SUBSCRIBER_MODE = true when building subscriber sites
         // Then populate EMBEDDED_CONFIG with their exported data
         // ============================================================
-        const SUBSCRIBER_MODE = true;   // Master site = false, Subscriber sites = true
+        const SUBSCRIBER_MODE = false;  // Master site = false, Subscriber sites = true
         
-        const EMBEDDED_CONFIG = {
-          siteId: 'delano-jv',
-          teamSetup: {
-            teamName: 'Delano Tigers JV',
-            logo: 'https://cdn3.sportngin.com/attachments/team/5112-152073362/1delano-tigers-hockey_large_square_large_square.png',
-            colors: { primary: '#000000', secondary: '#FC6418' },
-            arena: '',
-            pronunciations: {},
-            careerStats: {}
-          }
-        };
+        const EMBEDDED_CONFIG = null;   // null for master site, or paste exported config for subscribers
         /* Example for subscriber site:
         const EMBEDDED_CONFIG = {
           siteId: 'east-grand-forks',
@@ -857,7 +847,12 @@
             };
           };
 
-          const [lines, setLines] = useState(getInitialLines);
+          // JV v1.2: 5th forward line + 4th D pair always exist in the lines object (hidden until the coach adds them)
+          const [lines, setLines] = useState(() => ({
+            line5: { lw: null, c: null, rw: null, color: 'WHITE' },
+            d4: { ld: null, rd: null, color: 'WHITE' },
+            ...getInitialLines()
+          }));
 
           const [coachNotes, setCoachNotes] = useState(() => {
             try {
@@ -929,6 +924,37 @@
           const isThreeG = goalieMode !== 'STANDARD';
           const isEjectF = goalieMode === 'THREE_G_EJECT_F';
           const isEjectD = goalieMode === 'THREE_G_EJECT_D';
+
+          // JV v1.2: optional 5th forward line and 4th D pair. Saved locally and to the Google Sheet.
+          const [jvRows, setJvRows] = useState(() => {
+            try {
+              const s = JSON.parse(localStorage.getItem('hockey-scout-jv-rows') || 'null');
+              if (s && typeof s === 'object') return { line5: !!s.line5, d4: !!s.d4 };
+            } catch {}
+            return { line5: false, d4: false };
+          });
+          useEffect(() => {
+            try { localStorage.setItem('hockey-scout-jv-rows', JSON.stringify(jvRows)); } catch {}
+          }, [jvRows]);
+          // Adding or removing a row always starts it empty; players in a removed row go back to Available.
+          const toggleJvRow = (key) => {
+            setLines(prev => ({
+              ...prev,
+              [key]: key === 'line5'
+                ? { ...(prev.line5 || {}), lw: null, c: null, rw: null, color: prev.line5?.color || 'WHITE' }
+                : { ...(prev.d4 || {}), ld: null, rd: null, color: prev.d4?.color || 'WHITE' }
+            }));
+            setJvRows(prev => ({ ...prev, [key]: !prev[key] }));
+          };
+          const jvExtra = jvRows.line5 || jvRows.d4;
+          // JV v1.3: on-screen card heights (px). These are safe minimums. When printing, the rows
+          // auto-fit: they stretch to fill the printable page, never past it, never above 85.
+          //   F_H = forward cards, D_H = D cards + 3rd goalie. 85 = v1.1 default.
+          //   5th line only: D section keeps the v1.1 layout (D cards stay 85).
+          // Starter/backup goalie cards never change. Notes never change with 2 goalies.
+          const F_H = jvRows.line5 ? (jvRows.d4 ? 62 : 67) : (jvRows.d4 ? 72 : 85);
+          const D_H = jvRows.d4 ? (jvRows.line5 ? 62 : 72) : 85;
+          const fRows = jvRows.line5 ? 5 : 4;
 
           // Stat display toggles - persisted to localStorage
           const [showPlusMinus, setShowPlusMinus] = useState(() => {
@@ -1461,6 +1487,10 @@
                 if (d.goalieMode === 'STANDARD' || d.goalieMode === 'THREE_G_EJECT_F' || d.goalieMode === 'THREE_G_EJECT_D') {
                   setGoalieMode(d.goalieMode);
                 }
+                // JV v1.2: 5th line / 4th D pair choice
+                if (d.jvRows && typeof d.jvRows === 'object') {
+                  setJvRows({ line5: !!d.jvRows.line5, d4: !!d.jvRows.d4 });
+                }
                 console.log(`🔽 Live hydration applied for "${liveSlug}" — sections:`, Object.keys(d).filter(k => !k.startsWith('_')));
               } catch (e) {
                 console.warn('⚠️ Live hydration failed — using localStorage mirror:', e && e.message);
@@ -1522,6 +1552,11 @@
           useEffect(() => {
             scheduleSync('goalieMode', goalieMode);
           }, [goalieMode, scheduleSync]);
+
+          // (7) JV v1.2: 5th line / 4th D pair choice
+          useEffect(() => {
+            scheduleSync('jvRows', jvRows);
+          }, [jvRows, scheduleSync]);
 
           // Compress image before storing in localStorage
           const compressImage = (file, maxWidth = 800, maxHeight = 800, quality = 0.7, fillWhiteBackground = false) => {
@@ -2891,10 +2926,10 @@
               setLines(prevLines => {
                 const nl = { ...prevLines };
                 const upd = (p) => { if (!p) return p; return updatedRoster.find(r => r.id===p.id)||p; };
-                ['line1','line2','line3','line4'].forEach(l => {
+                ['line1','line2','line3','line4','line5'].forEach(l => {
                   if (nl[l]) { nl[l].lw=upd(nl[l].lw); nl[l].c=upd(nl[l].c); nl[l].rw=upd(nl[l].rw); }
                 });
-                ['d1','d2','d3'].forEach(d => {
+                ['d1','d2','d3','d4'].forEach(d => {
                   if (nl[d]) { nl[d].ld=upd(nl[d].ld); nl[d].rd=upd(nl[d].rd); }
                 });
                 if (nl.goalies) { nl.goalies.starter=upd(nl.goalies.starter); nl.goalies.backup=upd(nl.goalies.backup); nl.goalies.third=upd(nl.goalies.third); }
@@ -3695,6 +3730,7 @@
             const pronunciationFontSize = `${9 * fontScale}pt`;
             
             React.useEffect(() => {
+              let jvNumRO = null;   // JV v1.4: re-fit the jersey number when the card resizes
               const resizeText = (element, maxSize, minSize = 8) => {
                 if (!element) return;
                 let fontSize = maxSize;
@@ -3715,6 +3751,70 @@
                   : (isPreview ? 32.8125 : 105);
                 const minNumberSize = isPreview ? 12.5 : 40;
                 resizeText(numberRef.current, maxNumberSize, minNumberSize);
+                // JV v1.4: the jersey number must fit the card's HEIGHT too. Measured on the actual inked
+                // digits (canvas text metrics + the real baseline), plus the offset shadow and outline,
+                // so it holds on any platform/font rendering. Re-fits whenever the card's size changes
+                // (styles arriving late, adding/removing a 5th line or 4th pair, font load).
+                // Only ever shrinks below the width-fit size, so cards that already fit don't change.
+                const fitNumberHeight = () => {
+                  const el = numberRef.current;
+                  if (!el || !el.isConnected || !el.parentElement) return;
+                  const col = el.parentElement;
+                  const ccs = getComputedStyle(col);
+                  const colRect = col.getBoundingClientRect();
+                  const others = [...col.children]
+                    .filter(c => c !== el && getComputedStyle(c).position !== 'absolute')
+                    .reduce((sum, c) => sum + c.offsetHeight, 0);
+                  const limitTop = colRect.top;
+                  // JV v1.5: keep the same breathing room below the digits that default (85px) cards have —
+                  // the column's bottom padding — so shorter cards never look chopped against the border.
+                  const limitBottom = colRect.top + col.clientTop + col.clientHeight - parseFloat(ccs.paddingBottom || 0) - others + 0.5;
+                  if (limitBottom - limitTop < 8) return;
+                  const txt = String(el.textContent || '');
+                  if (!txt) return;
+                  const ctx = (window.__llcNumCtx = window.__llcNumCtx || document.createElement('canvas').getContext('2d'));
+                  const fam = getComputedStyle(el).fontFamily;
+                  const pad = isPreview ? 0.5 : 3;   // offset shadow below the digit
+                  const probe = document.createElement('span');
+                  probe.style.cssText = 'display:inline-block;width:0;height:0;padding:0;margin:0;border:0;vertical-align:baseline;';
+                  el.insertBefore(probe, el.firstChild);   // before the digits, so it can never wrap to a 2nd line
+                  const fits = () => {
+                    const px = parseFloat(getComputedStyle(el).fontSize);
+                    ctx.font = `${px}px ${fam}`;
+                    const m = ctx.measureText(txt);
+                    const asc = (m.actualBoundingBoxAscent ?? px * 0.77);
+                    const desc = (m.actualBoundingBoxDescent ?? 0);
+                    const base = probe.getBoundingClientRect().bottom;
+                    return (base - asc - 1) >= (limitTop - 1) && (base + desc + pad) <= limitBottom;
+                  };
+                  let fs = parseFloat(el.style.fontSize) || maxNumberSize;
+                  const floor = isPreview ? 3 : 10;
+                  let n = 0;
+                  while (!fits() && fs > floor && n < 400) {
+                    fs -= 0.5;
+                    el.style.fontSize = `${fs}pt`;
+                    n++;
+                  }
+                  probe.remove();
+                };
+                const fitNumberAll = () => {
+                  if (!numberRef.current) return;
+                  resizeText(numberRef.current, maxNumberSize, minNumberSize);
+                  fitNumberHeight();
+                };
+                fitNumberHeight();
+                if (document.fonts && document.fonts.ready) document.fonts.ready.then(fitNumberAll);
+                if (typeof ResizeObserver !== 'undefined' && numberRef.current.parentElement) {
+                  let raf = 0, lastW = -1, lastH = -1;
+                  jvNumRO = new ResizeObserver(entries => {
+                    const r = entries[0] && entries[0].contentRect;
+                    if (!r || (Math.round(r.width) === lastW && Math.round(r.height) === lastH)) return;
+                    lastW = Math.round(r.width); lastH = Math.round(r.height);
+                    cancelAnimationFrame(raf);
+                    raf = requestAnimationFrame(fitNumberAll);
+                  });
+                  jvNumRO.observe(numberRef.current.parentElement);
+                }
               }
               
               if (nameRef.current) {
@@ -3747,6 +3847,7 @@
                 // Apply shift after size is locked in
                 pronunciationRef.current.style.transform = 'translateY(2px)';
               }
+              return () => { if (jvNumRO) jvNumRO.disconnect(); };
             }, [player.number, player.name, pronunciation, isGoalie, isPreview, hasLogos]);
             
             return (
@@ -3991,6 +4092,8 @@
           const LineSlot = ({ line, position, label, showLabel = false }) => {
             const player = lines[line][position];
             const isTargeted = selectedPlayer && !player;
+            // JV v1.3: starter/backup goalie cards never change; 3rd goalie follows the D cards
+            const slotH = line === 'goalies' ? (position === 'third' ? D_H : 85) : (/^d\d$/.test(line) ? D_H : F_H);
             
             const handleSlotClickOrRemove = () => {
               if (player) {
@@ -4005,7 +4108,7 @@
             };
             
             return (
-              <div style={{ height: '85px', overflow: 'hidden', minWidth: 0, width: '100%' }}>
+              <div className={line === 'goalies' && position !== 'third' ? '' : 'jv-slot'} style={{ height: `${slotH}px`, overflow: 'hidden', minWidth: 0, width: '100%' }}>
                 {showLabel && (
                   <div className="text-xs font-bold text-center mb-0" style={{ fontSize: '11px', marginBottom: '2px' }}>{label}</div>
                 )}
@@ -4031,7 +4134,8 @@
 
           const getPlayersInLines = () => {
             const playersInLines = new Set();
-            Object.values(lines).forEach(line => {
+            Object.entries(lines).forEach(([key, line]) => {
+              if ((key === 'line5' && !jvRows.line5) || (key === 'd4' && !jvRows.d4)) return;
               Object.values(line).forEach(val => {
                 if (val && typeof val === 'object' && val.id) {
                   playersInLines.add(val.id);
@@ -5210,6 +5314,8 @@
                             d1: { ld: null, rd: null, color: 'WHITE' },
                             d2: { ld: null, rd: null, color: 'WHITE' },
                             d3: { ld: null, rd: null, color: 'WHITE' },
+                            line5: { lw: null, c: null, rw: null, color: 'WHITE' },
+                            d4: { ld: null, rd: null, color: 'WHITE' },
                             goalies: { starter: null, starterColor: 'WHITE', backup: null, backupColor: 'WHITE' }
                           });
                           console.log('🧹 Cleared all line assignments');
@@ -5230,7 +5336,7 @@
               </div>
 
               {/* Print Page 1 */}
-              <div className="print-page-1 bg-white p-0 max-w-7xl mx-auto" style={{ maxWidth: '7.875in' }}>
+              <div className={`print-page-1 bg-white p-0 max-w-7xl mx-auto ${jvExtra ? 'jv-fit' : ''} ${jvRows.d4 ? 'jv-fit-d' : ''}`} style={{ maxWidth: '7.875in', '--jv-f': fRows }}>
                 {/* Calculate dynamic text colors based on background darkness */}
                 {(() => {
                   const leftGameTextColor = isColorDark(myTeamSetup.colors.secondary) ? '#FFFFFF' : myTeamSetup.colors.primary;
@@ -5540,7 +5646,7 @@
                 </div>
 
                 {/* Forward Lines */}
-                <div className="mb-0">
+                <div className="mb-0 jv-fsec">
                   <h2 style={{ fontSize: '13px' }} className="font-bold mb-0 text-center">FORWARD LINES</h2>
                   
                   <div className="flex items-center gap-2 mb-1">
@@ -5553,7 +5659,7 @@
                   </div>
                   
                   {['line1', 'line2', 'line3'].map((line, idx) => (
-                    <div key={line} className={`mb-1 rounded p-0 border-2 ${colorClasses[lines[line].color]}`}>
+                    <div key={line} className={`jv-row mb-1 rounded p-0 border-2 ${colorClasses[lines[line].color]}`}>
                       <div className="flex items-center gap-0 mb-0">
                         <ColorPicker value={lines[line].color} onChange={(c) => handleLineColorChange(line, c)} />
                         <div className="flex-1 grid grid-cols-3 gap-1">
@@ -5567,7 +5673,7 @@
                   {/* Line 4 — v63.3: 3-slot (LW+C+RW) in STANDARD and D-eject modes; 2-slot (LW+C) + notes only in F-eject.
                       D-eject keeps all 12 forwards on-chart; its layout surgery happens in the D3 row below. */}
                   {!isEjectF ? (
-                    <div key="line4" className={`mb-1 rounded p-0 border-2 ${colorClasses[lines.line4.color]}`}>
+                    <div key="line4" className={`jv-row mb-1 rounded p-0 border-2 ${colorClasses[lines.line4.color]}`}>
                       <div className="flex items-center gap-0 mb-0">
                         <ColorPicker value={lines.line4.color} onChange={(c) => handleLineColorChange('line4', c)} />
                         <div className="flex-1 grid grid-cols-3 gap-1">
@@ -5578,7 +5684,7 @@
                       </div>
                     </div>
                   ) : (
-                    <div key="line4" className="grid grid-cols-3 gap-1 mb-1">
+                    <div key="line4" className="jv-row grid grid-cols-3 gap-1 mb-1">
                       <div className={`col-span-2 rounded p-0 border-2 ${colorClasses[lines.line4.color]}`}>
                         <div className="flex items-center gap-0">
                           <ColorPicker value={lines.line4.color} onChange={(c) => handleLineColorChange('line4', c)} />
@@ -5589,7 +5695,7 @@
                         </div>
                       </div>
                       {/* Notes container relocated here when 3-goalie mode is on. Identical 1/3 width × 85px geometry as D3 right column. */}
-                      <div className={`grid grid-cols-2 gap-2 ${!coachNotes.notesVisible ? 'notes-text-hidden' : ''}`} style={{ height: '85px' }}>
+                      <div className={`jv-shrink-notes grid grid-cols-2 gap-2 ${!coachNotes.notesVisible ? 'notes-text-hidden' : ''}`} style={{ height: `${F_H}px` }}>
                         <div className="border-2 rounded flex flex-col" style={{ 
                           borderColor: myTeamSetup.colors.primary, 
                           background: `${myTeamSetup.colors.primary}10`,
@@ -5601,7 +5707,7 @@
                             placeholder="Add Notes"
                             onChange={(e) => setCoachNotes({...coachNotes, pkTitle: e.target.value})}
                             className="w-full border-0 bg-transparent text-center font-bold placeholder-print-hide"
-                            style={{ fontSize: '10px', padding: '0px', outline: 'none', marginBottom: '0px' }}
+                            style={{ fontSize: '10px', padding: '0px', outline: 'none', marginBottom: '0px', ...(F_H < 85 ? { height: '11px', lineHeight: '11px' } : {}) }}
                           />
                           <div className="flex-1 flex flex-col justify-around" style={{ fontSize: '9px', lineHeight: '1.0' }}>
                             {[0,1,2,3,4].map(i => (
@@ -5610,7 +5716,7 @@
                                 type="text" 
                                 placeholder="" 
                                 className="w-full border-0 bg-transparent text-center"
-                                style={{ fontSize: '9px', padding: '0px', outline: 'none', fontWeight: 'normal' }}
+                                style={{ fontSize: '9px', padding: '0px', outline: 'none', fontWeight: 'normal', ...(F_H < 85 ? { height: '10px', lineHeight: '10px' } : {}) }}
                                 value={coachNotes.pk?.split('\n')[i] || ''}
                                 onChange={(e) => {
                                   const pkLines = coachNotes.pk?.split('\n') || ['','','','',''];
@@ -5632,7 +5738,7 @@
                             placeholder="Add Notes"
                             onChange={(e) => setCoachNotes({...coachNotes, ppTitle: e.target.value})}
                             className="w-full border-0 bg-transparent text-center font-bold placeholder-print-hide"
-                            style={{ fontSize: '10px', padding: '0px', outline: 'none', marginBottom: '0px' }}
+                            style={{ fontSize: '10px', padding: '0px', outline: 'none', marginBottom: '0px', ...(F_H < 85 ? { height: '11px', lineHeight: '11px' } : {}) }}
                           />
                           <div className="flex-1 flex flex-col justify-around" style={{ fontSize: '9px', lineHeight: '1.0' }}>
                             {[0,1,2,3,4].map(i => (
@@ -5641,7 +5747,7 @@
                                 type="text" 
                                 placeholder="" 
                                 className="w-full border-0 bg-transparent text-center"
-                                style={{ fontSize: '9px', padding: '0px', outline: 'none', fontWeight: 'normal' }}
+                                style={{ fontSize: '9px', padding: '0px', outline: 'none', fontWeight: 'normal', ...(F_H < 85 ? { height: '10px', lineHeight: '10px' } : {}) }}
                                 value={coachNotes.pp?.split('\n')[i] || ''}
                                 onChange={(e) => {
                                   const ppLines = coachNotes.pp?.split('\n') || ['','','','',''];
@@ -5655,10 +5761,32 @@
                       </div>
                     </div>
                   )}
+                  {/* JV v1.2: optional 5th forward line */}
+                  {jvRows.line5 && (
+                    <div key="line5" className={`jv-row mb-1 rounded p-0 border-2 ${colorClasses[lines.line5.color]}`}>
+                      <div className="flex items-center gap-0 mb-0">
+                        <ColorPicker value={lines.line5.color} onChange={(c) => handleLineColorChange('line5', c)} />
+                        <div className="flex-1 grid grid-cols-3 gap-1">
+                          <LineSlot line="line5" position="lw" label="LW" showLabel={false} />
+                          <LineSlot line="line5" position="c" label="C" showLabel={false} />
+                          <LineSlot line="line5" position="rw" label="RW" showLabel={false} />
+                        </div>
+                      </div>
+                    </div>
+                  )}
+                  <div className="no-print mb-1">
+                    <button
+                      onClick={() => toggleJvRow('line5')}
+                      className="w-full border-2 border-dashed border-gray-400 rounded text-gray-600 hover:bg-gray-100 font-semibold"
+                      style={{ fontSize: '11px', padding: '2px 0' }}
+                    >
+                      {jvRows.line5 ? '− Remove 5th Line' : '+ Add 5th Line'}
+                    </button>
+                  </div>
                 </div>
 
                 {/* Defense Pairs + Goalies + PK/PP */}
-                <div className="mb-1">
+                <div className="mb-1 jv-dsec">
                   <div className="grid grid-cols-3 gap-2 mb-0">
                     <h2 style={{ fontSize: '13px' }} className="font-bold col-span-2 text-center">DEFENSE PAIRS</h2>
                     <h2 style={{ fontSize: '13px' }} className="font-bold text-center">GOALIES</h2>
@@ -5670,6 +5798,8 @@
                     <div className="text-xs font-bold text-center" style={{ fontSize: '11px', backgroundColor: '#222222', color: '#FFFFFF', padding: '2px 0', borderRadius: '4px' }}>STARTER</div>
                   </div>
 
+                  {!jvRows.d4 ? (
+                  <>
                   {/* D1 + Starter Goalie */}
                   <div className="grid grid-cols-3 gap-1 mb-1">
                     <div className={`col-span-2 rounded p-0 border-2 ${colorClasses[lines.d1.color]}`}>
@@ -5822,6 +5952,161 @@
                       /* STANDARD */                        return (<>{d3PairFull}{notesTwoCell}</>);
                     })()}
                   </div>
+                  </>
+                  ) : (() => {
+                    // JV v1.3: stacked layout used only when a 4th D pair is on.
+                    // Left 2/3: D pairs (shorter cards). Right 1/3: starter + backup at full size, then
+                    // notes (2 goalies) or the 3rd goalie. Space under the goalies is left open.
+                      const notesTwoCell = (
+                        <div className={`${isEjectD ? 'jv-shrink-notes ' : ''}grid grid-cols-2 gap-2 ${!coachNotes.notesVisible ? 'notes-text-hidden' : ''}`} style={{ height: isEjectD ? `${D_H}px` : '85px' }}>
+                          <div className="border-2 rounded flex flex-col" style={{
+                            borderColor: myTeamSetup.colors.primary,
+                            background: `${myTeamSetup.colors.primary}10`,
+                            padding: '2px'
+                          }}>
+                            <input
+                              type="text"
+                              value={coachNotes.pkTitle || ''}
+                              placeholder="Add Notes"
+                              onChange={(e) => setCoachNotes({...coachNotes, pkTitle: e.target.value})}
+                              className="w-full border-0 bg-transparent text-center font-bold placeholder-print-hide"
+                              style={{ fontSize: '10px', padding: '0px', outline: 'none', marginBottom: '0px', ...(isEjectD ? { height: '11px', lineHeight: '11px' } : {}) }}
+                            />
+                            <div className="flex-1 flex flex-col justify-around" style={{ fontSize: '9px', lineHeight: '1.0' }}>
+                              {[0,1,2,3,4].map(i => (
+                                <input
+                                  key={i}
+                                  type="text"
+                                  placeholder=""
+                                  className="w-full border-0 bg-transparent text-center"
+                                  style={{ fontSize: '9px', padding: '0px', outline: 'none', fontWeight: 'normal', ...(isEjectD ? { height: '10px', lineHeight: '10px' } : {}) }}
+                                  value={coachNotes.pk?.split('\n')[i] || ''}
+                                  onChange={(e) => {
+                                    const pkLines = coachNotes.pk?.split('\n') || ['','','','',''];
+                                    pkLines[i] = e.target.value;
+                                    setCoachNotes({...coachNotes, pk: pkLines.join('\n')});
+                                  }}
+                                />
+                              ))}
+                            </div>
+                          </div>
+
+                          <div className="border-2 rounded flex flex-col" style={{
+                            borderColor: myTeamSetup.colors.primary,
+                            background: `${myTeamSetup.colors.primary}10`,
+                            padding: '2px'
+                          }}>
+                            <input
+                              type="text"
+                              value={coachNotes.ppTitle || ''}
+                              placeholder="Add Notes"
+                              onChange={(e) => setCoachNotes({...coachNotes, ppTitle: e.target.value})}
+                              className="w-full border-0 bg-transparent text-center font-bold placeholder-print-hide"
+                              style={{ fontSize: '10px', padding: '0px', outline: 'none', marginBottom: '0px', ...(isEjectD ? { height: '11px', lineHeight: '11px' } : {}) }}
+                            />
+                            <div className="flex-1 flex flex-col justify-around" style={{ fontSize: '9px', lineHeight: '1.0' }}>
+                              {[0,1,2,3,4].map(i => (
+                                <input
+                                  key={i}
+                                  type="text"
+                                  placeholder=""
+                                  className="w-full border-0 bg-transparent text-center"
+                                  style={{ fontSize: '9px', padding: '0px', outline: 'none', fontWeight: 'normal', ...(isEjectD ? { height: '10px', lineHeight: '10px' } : {}) }}
+                                  value={coachNotes.pp?.split('\n')[i] || ''}
+                                  onChange={(e) => {
+                                    const ppLines = coachNotes.pp?.split('\n') || ['','','','',''];
+                                    ppLines[i] = e.target.value;
+                                    setCoachNotes({...coachNotes, pp: ppLines.join('\n')});
+                                  }}
+                                />
+                              ))}
+                            </div>
+                          </div>
+                        </div>
+                      );
+                      const thirdGoalieCard = (
+                        <div className={`jv-third goalie-card-extended rounded p-0 border-2 ${colorClasses[lines.goalies.thirdColor]}`} style={{ width: 'calc(100% + 28px)' }}>
+                          <div className="flex items-center gap-0">
+                            <div className="flex-1" style={{ minWidth: 0 }}>
+                              <LineSlot line="goalies" position="third" label="3rd" showLabel={false} />
+                            </div>
+                            <ColorPicker value={lines.goalies.thirdColor} onChange={(c) => handleGoalieColorChange('third', c)} />
+                          </div>
+                        </div>
+                      );
+                      const d3PairFull = (
+                        <div className={`col-span-2 rounded p-0 border-2 ${colorClasses[lines.d3.color]}`}>
+                          <div className="flex items-center gap-0">
+                            <ColorPicker value={lines.d3.color} onChange={(c) => handleLineColorChange('d3', c)} />
+                            <div className="flex-1 grid grid-cols-2 gap-1">
+                              <LineSlot line="d3" position="ld" label="LD" showLabel={false} />
+                              <LineSlot line="d3" position="rd" label="RD" showLabel={false} />
+                            </div>
+                          </div>
+                        </div>
+                      );
+                      const d3LdSolo = (
+                        <div className={`rounded p-0 border-2 ${colorClasses[lines.d3.color]}`}>
+                          <div className="flex items-center gap-0">
+                            <ColorPicker value={lines.d3.color} onChange={(c) => handleLineColorChange('d3', c)} />
+                            <div className="flex-1">
+                              <LineSlot line="d3" position="ld" label="LD" showLabel={false} />
+                            </div>
+                          </div>
+                        </div>
+                      );
+                      const pair = (key) => (
+                        <div key={key} className={`jv-row rounded p-0 border-2 ${colorClasses[lines[key].color]}`}>
+                          <div className="flex items-center gap-0">
+                            <ColorPicker value={lines[key].color} onChange={(c) => handleLineColorChange(key, c)} />
+                            <div className="flex-1 grid grid-cols-2 gap-1">
+                              <LineSlot line={key} position="ld" label="LD" showLabel={false} />
+                              <LineSlot line={key} position="rd" label="RD" showLabel={false} />
+                            </div>
+                          </div>
+                        </div>
+                      );
+                      return (
+                        <div className="jv-dgrid grid grid-cols-3 gap-1 mb-1" style={{ alignItems: 'start' }}>
+                          <div className="jv-dleft col-span-2 flex flex-col" style={{ gap: '4px' }}>
+                            {pair('d1')}
+                            {pair('d2')}
+                            {isEjectD
+                              ? <div className="jv-row grid grid-cols-2 gap-1">{d3LdSolo}{notesTwoCell}</div>
+                              : pair('d3')}
+                            {jvRows.d4 && pair('d4')}
+                          </div>
+                          <div className="jv-dright flex flex-col" style={{ gap: '4px' }}>
+                    <div className={`goalie-card-extended rounded p-0 border-2 ${colorClasses[lines.goalies.starterColor]}`} style={{ width: 'calc(100% + 28px)' }}>
+                            <div className="flex items-center gap-0">
+                              <div className="flex-1" style={{ minWidth: 0 }}>
+                                <LineSlot line="goalies" position="starter" label="Starter" showLabel={false} />
+                              </div>
+                              <ColorPicker value={lines.goalies.starterColor} onChange={(c) => handleGoalieColorChange('starter', c)} />
+                            </div>
+                          </div>
+                    <div className={`goalie-card-extended rounded p-0 border-2 ${colorClasses[lines.goalies.backupColor]}`} style={{ width: 'calc(100% + 28px)' }}>
+                            <div className="flex items-center gap-0">
+                              <div className="flex-1" style={{ minWidth: 0 }}>
+                                <LineSlot line="goalies" position="backup" label="Backup" showLabel={false} />
+                              </div>
+                              <ColorPicker value={lines.goalies.backupColor} onChange={(c) => handleGoalieColorChange('backup', c)} />
+                            </div>
+                          </div>
+                            {goalieMode === 'STANDARD' ? notesTwoCell : thirdGoalieCard}
+                          </div>
+                        </div>
+                      );
+                  })()}
+                  <div className="no-print mb-1">
+                    <button
+                      onClick={() => toggleJvRow('d4')}
+                      className="border-2 border-dashed border-gray-400 rounded text-gray-600 hover:bg-gray-100 font-semibold"
+                      style={{ fontSize: '11px', padding: '2px 0', width: '66.66%' }}
+                    >
+                      {jvRows.d4 ? '− Remove 4th D Pair' : '+ Add 4th D Pair'}
+                    </button>
+                  </div>
                 </div>
 
                 {/* Manager and Injured Boxes */}
@@ -5904,6 +6189,30 @@
                     flex-direction: column !important;
                   }
                   
+                  /* JV v1.3 AUTO-FIT (print only, only when a 5th line or 4th D pair is on).
+                     The page is a fixed-height column (10.375in, overflow hidden). Header, labels,
+                     goalies, notes (2 goalies), manager boxes and footer keep their size. Skater rows
+                     share whatever height is left, capped at the normal 85px card (89px with border),
+                     and can only shrink to fit, so nothing can ever be pushed past the printable area. */
+                  .print-page-1.jv-fit { display: flex !important; flex-direction: column !important; }
+                  .print-page-1.jv-fit > * { flex: 0 0 auto; }
+                  .print-page-1.jv-fit > .jv-fsec { flex: var(--jv-f) 1 calc(42px + 8px * var(--jv-f)); min-height: 0; display: flex; flex-direction: column; }
+                  .print-page-1.jv-fit-d > .jv-dsec { flex: 4 1 74px; min-height: 0; display: flex; flex-direction: column; }
+                  .jv-fit .jv-fsec > *, .jv-fit-d .jv-dsec > * { flex: 0 0 auto; }
+                  .jv-fit .jv-fsec > .jv-row { flex: 1 1 4px; min-height: 0; max-height: 89px; }
+                  .jv-fit-d .jv-dsec > .jv-dgrid { flex: 1 1 0px; min-height: 271px; align-items: stretch !important; }
+                  .jv-fit-d .jv-dleft { height: 100%; min-height: 0; contain: size; }
+                  .jv-fit-d .jv-dleft > .jv-row { flex: 1 1 4px; min-height: 0; max-height: 89px; }
+                  .jv-fit-d .jv-dright { align-self: stretch; min-height: 0; contain: size; }
+                  .jv-fit-d .jv-dright > .jv-third { flex: 1 1 0px; min-height: 0; max-height: 89px; }
+                  .jv-fit-d .jv-third .flex.items-center { height: 100%; align-items: stretch !important; }
+                  .jv-fit-d .jv-third .flex-1 { height: 100%; }
+                  .jv-fit-d .jv-third .jv-slot { height: 100% !important; }
+                  .jv-fit .jv-row .flex.items-center { height: 100%; align-items: stretch !important; }
+                  .jv-fit .jv-row .grid { height: 100% !important; }
+                  .jv-fit .jv-row .jv-slot { height: 100% !important; }
+                  .jv-fit .jv-row.grid > * { min-height: 0; }
+
                   @page {
                     size: 8.5in 11in;
                     margin: 0.3125in;
